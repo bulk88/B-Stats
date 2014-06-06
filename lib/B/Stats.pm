@@ -128,7 +128,7 @@ sub import {
     if (/^-?f(.*)$/) {
       my $arg = $1;
       if ($arg =~ /^[A-Z]*OP$/) {
-	my @optype = qw(OP UNOP BINOP LOGOP LISTOP PMOP SVOP PADOP PVOP LOOP COP);
+	my @optype = qw(OP UNOP BINOP LOGOP LISTOP PMOP SVOP PADOP PVOP LOOP COP BASEOP FILESTATOP OA_LOOPEXOP );
 	$opt{f}->{class}->{$arg} = 1;
 	die "invalid B::Stats,-fOPCLASS argument: $arg\n"
 	  unless grep {$arg eq $_} @optype;
@@ -353,7 +353,7 @@ sub output_runtime {
   require Opcodes;
   my $maxo = Opcodes::opcodes();
   # @optype only since 5.8.9 in B
-  my @optype = qw(OP UNOP BINOP LOGOP LISTOP PMOP SVOP PADOP PVOP LOOP COP);
+  my @optype = qw(OP UNOP BINOP LOGOP LISTOP PMOP SVOP PADOP PVOP LOOP COP BASEOP FILESTATOP OA_LOOPEXOP );
   for my $i (0..$maxo-1) {
     if (my $count = $r_countarr->[$i]) {
       my $name = Opcodes::opname($i);
