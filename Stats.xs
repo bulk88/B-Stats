@@ -16,13 +16,33 @@
 # define DISABLE_PERL_CORE_EXPORTED
 #endif
 
+
+__declspec( naked )  unsigned __int64 rdtsc () {
+                    __asm
+                {
+                    mov eax, 80000000h
+                    push ebx
+                    cpuid
+                    _emit 0xf
+                    _emit 0x31
+                    pop ebx
+                    retn
+                }
+}
+
+#define QueryPerformanceCounter(x) ((*(unsigned __int64 *)x)=rdtsc())
 STATIC U32 opcount[MAXO];
+
+STATIC unsigned __int64 optime[MAXO];
 
 /* From B::C */
 STATIC int
 my_runops(pTHX)
 {
   int ignore = 0;
+  unsigned __int64 s;
+  unsigned __int64 e;
+  unsigned short op_type;
 #if 0
   /* ignore all ops from our subs */
   HV* ign_stash = get_hv( "B::Stats::", 0 );
@@ -77,6 +97,9 @@ my_runops(pTHX)
     }
   if (!ignore) {
     opcount[PL_op->op_type]++;
+    op_type = PL_op->op_type;
+    opcount[op_type]++;
+    QueryPerformanceCounter((LARGE_INTEGER *)&s);
 #ifdef DEBUGGING
     if (DEBUG_v_TEST_) {
 # ifndef DISABLE_PERL_CORE_EXPORTED
@@ -87,7 +110,12 @@ my_runops(pTHX)
     }
 #endif
   }
-  } while ((PL_op = CALL_FPTR(PL_op->op_ppaddr)(aTHX)));
+  PL_op = CALL_FPTR(PL_op->op_ppaddr)(aTHX);
+  if (!ignore) {
+    QueryPerformanceCounter((LARGE_INTEGER *)&e);
+    optime[op_type] += e-s;
+  }
+  } while (PL_op);
   DEBUG_v(Perl_deb(aTHX_ "leaving RUNOPS level (B::Stats)\n"));
 
   TAINT_NOT;
@@ -105,6 +133,12 @@ reset_rcount() {
   }
 #endif
 }
+
+void
+reset_rtime() {
+  memset(optime, 0, sizeof(optime));
+}
+  
 /* returns an SV ref to AV with caller now owning the SV ref */
 SV *
 rcount_all(pTHX) {
@@ -116,6 +150,19 @@ rcount_all(pTHX) {
   }
   return newRV_noinc((SV*)av);
 }
+
+/* returns an SV ref to AV with caller now owning the SV ref */
+SV *
+rtime_all(pTHX) {
+  AV * av;
+  int i;
+  av = newAV();
+  for (i=0; i < MAXO; i++) {
+    av_store(av, i, newSViv(optime[i]));
+  }
+  return newRV_noinc((SV*)av);
+}
+
 
 MODULE = B::Stats  PACKAGE = B::Stats
 
@@ -134,8 +181,16 @@ rcount_all()
   C_ARGS:
     aTHX
 
+SV *
+rtime_all()
+  C_ARGS:
+    aTHX
+
 void
 reset_rcount()
+
+void
+reset_rtime()
 
 void
 _xs_collect_env()
@@ -146,11 +201,10 @@ _xs_collect_env()
 
 void
 END(...)
-  PREINIT:
-    SV * sv;
   PPCODE:
     PUSHMARK(SP);
     PUSHs(sv_2mortal(rcount_all(aTHX)));
+    PUSHs(sv_2mortal(rtime_all(aTHX)));
     PUTBACK;
     call_pv("B::Stats::_end", G_VOID);
     return; /* skip implicity PUTBACK */
@@ -160,10 +214,12 @@ INIT(...)
   PPCODE:
     PUTBACK;
     reset_rcount();
+    reset_rtime();
     return; /* skip implicity PUTBACK */
 
 BOOT:
 {
   reset_rcount();
+  reset_rtime();
   PL_runops = my_runops;
 }
